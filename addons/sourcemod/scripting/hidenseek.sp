@@ -54,7 +54,6 @@
 #define BLOCK_CONSOLE_KILL            "1"
 #define SUICIDE_POINTS_PENALTY        "3"
 #define MOLOTOV_FRIENDLY_FIRE         "0"
-#define STATS                         "1"
 
 // Fade Defines
 #define FFADE_IN               0x0001
@@ -88,22 +87,6 @@
 #define SOUND_UNFREEZE             "physics/glass/glass_impact_bullet4.wav"
 #define SOUND_FROSTNADE_EXPLODE    "ui/freeze_cam.wav"
 #define SOUND_GOGOGO               "player\vo\fbihrt\radiobotgo01.wav"
-
-// Stats Defines
-#define MINIMUM_JUMP_DISTANCE       215.0
-#define MOUSE_LEFT                  (1 << 0)
-#define MOUSE_RIGHT                 (1 << 1)
-#define JUMP_LJ                     1
-#define JUMP_BHJ                    2
-#define JUMP_MBHJ                   3
-#define JUMP_LADJ                   4
-
-//Spec Defines
-#define REFRESH_RATE                0.1
-#define SPECMODE_NONE               0
-#define SPECMODE_FIRSTPERSON        4
-#define SPECMODE_3RDPERSON          5
-#define SPECMODE_FREELOOK           6
 
 public Plugin:myinfo =
 {
@@ -145,7 +128,6 @@ new Handle:g_hFrostNadesDetonationRing = INVALID_HANDLE;
 new Handle:g_hBlockConsoleKill = INVALID_HANDLE;
 new Handle:g_hSuicidePointsPenalty = INVALID_HANDLE;
 new Handle:g_hMolotovFriendlyFire = INVALID_HANDLE;
-new Handle:g_hStats = INVALID_HANDLE;
 
 new bool:g_bEnabled;
 new Float:g_fCountdownTime;
@@ -170,7 +152,6 @@ new g_iSuicidePointsPenalty;
 new bool:g_bMolotovFriendlyFire;
 new Float:g_faGrenadeChance[6] = {0.0, ...};
 new g_iaGrenadeMaximumAmounts[6] = {0, ...};
-new bool:g_bStats;
 
 //Roundstart vars    
 new Float:g_fRoundStartTime;    // Records the time when the round started
@@ -200,33 +181,6 @@ new bool:g_baFrozen[MAXPLAYERS + 1] = {false, ...};
 new bool:g_baToggleKnife[MAXPLAYERS + 1] = {true, ...};
 new g_iaInitialTeamTrack[MAXPLAYERS + 1] = {0, ...};
 new g_iTerroristsDeathCount;
-
-  //stats
-new Handle:g_hStatsTimer = INVALID_HANDLE;
-new bool:g_baStats[MAXPLAYERS + 1] = {true, ...};
-new bool:g_baJumped[MAXPLAYERS + 1] = {false, ...};
-new bool:g_baCanJump[MAXPLAYERS + 1] = {true, ...};
-new bool:g_baJustHopped[MAXPLAYERS + 1] = {false, ...};
-new bool:g_baCanBhop[MAXPLAYERS + 1] = {false, ...};
-new bool:g_baAntiJump[MAXPLAYERS + 1] = {true, ...};
-new Float:g_faJumpCoord[MAXPLAYERS + 1][3];
-new Float:g_faLandCoord[MAXPLAYERS + 1][3];
-new Float:g_faDistance[MAXPLAYERS + 1] = {0.0, ...};
-new Float:g_faTemp[MAXPLAYERS + 1] = {0.0, ...};
-new g_iaBhops[MAXPLAYERS + 1] = {0, ...};
-new g_iaFrame[MAXPLAYERS + 1] = {0, ...};
-new g_iaJumpType[MAXPLAYERS + 1] = {0, ...};
-new g_iaButtons[MAXPLAYERS+1] = {0, ...};
-new g_iaMouseDisplay[MAXPLAYERS + 1] = {0, ...};
-
-//Stats consts
-new const String:g_saJumpTypes[][] = {
-    "nope",
-    "LJ",
-    "BHJ",
-    "MBHJ",
-    "LadJ"
-}
 
 //Grenade consts
 new const String:g_saGrenadeWeaponNames[][] = {        
@@ -319,7 +273,6 @@ public OnPluginStart()
     g_hBlockConsoleKill = CreateConVar("hns_block_console_kill", BLOCK_CONSOLE_KILL, "Blocks the kill command (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
     g_hSuicidePointsPenalty = CreateConVar("hns_suicide_points_penalty", SUICIDE_POINTS_PENALTY, "The amount of points players lose when dying by fall without enemy assists", _, true, 0.0);
     g_hMolotovFriendlyFire = CreateConVar("hns_molotov_friendly_fire", MOLOTOV_FRIENDLY_FIRE, "Allows molotov friendly fire (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
-    g_hStats = CreateConVar("hns_stats", STATS, "Turns the built-in stats On/Off (0=OFF, 1=ON)", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     // Remember to add HOOKS to OnCvarChange and modify OnConfigsExecuted
 
     //Enforce some server ConVars
@@ -360,7 +313,6 @@ public OnPluginStart()
     HookConVarChange(g_hBlockConsoleKill, OnCvarChange);
     HookConVarChange(g_hSuicidePointsPenalty, OnCvarChange);
     HookConVarChange(g_hMolotovFriendlyFire, OnCvarChange);
-    HookConVarChange(g_hStats, OnCvarChange);
     
     //Hooked'em
     HookEvent("player_spawn", OnPlayerSpawn);
@@ -378,7 +330,6 @@ public OnPluginStart()
     g_bEnabled = true;
     
     RegConsoleCmd("toggleknife", Command_ToggleKnife);
-    RegConsoleCmd("togglestats", Command_ToggleStats);
     AutoExecConfig(true, "hidenseek");
     
     ServerCommand("mp_backup_round_file \"\"");
@@ -404,8 +355,6 @@ public OnConfigsExecuted()
     g_iRoundPoints = GetConVarInt(g_hRoundPoints);
     g_iBonusPointsMultiplier = GetConVarInt(g_hBonusPointsMultiplier);
     g_iMaximumWinStreak = GetConVarInt(g_hMaximumWinStreak);
-    
-    g_bStats = GetConVarBool(g_hStats);
     
     g_faGrenadeChance[NADE_FLASHBANG] = GetConVarFloat(g_hFlashbangChance);
     g_faGrenadeChance[NADE_MOLOTOV] = GetConVarFloat(g_hMolotovChance);
@@ -458,16 +407,13 @@ public OnMapStart()
     }
 }
 
-public OnMapEnd() {
+public OnMapEnd() 
+{
     for(new iClient = 1; iClient <= MaxClients; iClient++) {
         if(g_haFreezeTimer[iClient] != INVALID_HANDLE) {
             KillTimer(g_haFreezeTimer[iClient]);
             g_haFreezeTimer[iClient] = INVALID_HANDLE;
         }
-    }
-    if(g_hStatsTimer != INVALID_HANDLE) {
-        KillTimer(g_hStatsTimer);
-        g_hStatsTimer = INVALID_HANDLE;
     }
 }
 
@@ -498,10 +444,6 @@ public Action:OnRoundStart(Handle:hEvent, const String:sName[], bool:dontBroadca
 public Action:StartCountdown(Handle:hTimer)
 {
     g_hStartCountdown = INVALID_HANDLE;
-    if(g_hStatsTimer != INVALID_HANDLE) {
-        KillTimer(g_hStatsTimer);
-        g_hStatsTimer = INVALID_HANDLE;
-    }
     for(new iClient = 1; iClient < MaxClients; iClient++) {
         CreateTimer(0.1, FirstCountdownMessage, iClient);
     }
@@ -540,106 +482,10 @@ public Action:ShowCountdownMessage(Handle:hTimer)
             if(IsClientInGame(iClient))
                 PrintHintText(iClient, "\n  The round has started.");
         }
-        CreateTimer(3.0, ShowStats, _, TIMER_FLAG_NO_MAPCHANGE);
         //EmitSoundToAll(SOUND_GOGOGO);
         g_hShowCountdownMessage = INVALID_HANDLE;
         return Plugin_Stop;
     }
-}
-
-public Action:ShowStats(Handle:hTimer)
-{
-    if(g_hStatsTimer != INVALID_HANDLE)
-        KillTimer(g_hStatsTimer);
-    g_hStatsTimer = CreateTimer(REFRESH_RATE, ShowStatsMessage, _, TIMER_REPEAT);
-}
-
-public Action:ShowStatsMessage(Handle:hTimer)
-{
-    if(g_bStats) {
-        for(new iClient = 1; iClient <= MaxClients; iClient++) {
-            if(IsClientInGame(iClient) && g_baStats[iClient]) {
-                if(IsPlayerAlive(iClient)) {
-                    decl String:sOutput[128];
-                    Format(sOutput, sizeof(sOutput), "  Speed: %.1f ups\n", GetPlayerSpeed(iClient));
-                    if(g_faDistance[iClient] != -1.0) {    
-                        if(g_faDistance[iClient] > MINIMUM_JUMP_DISTANCE)   //with W and duck you get 223.4 or so
-                            g_faTemp[iClient] = g_faDistance[iClient];
-                        Format(sOutput, sizeof(sOutput),
-                        "%s  Last Jump: %.1f units [%s]\n", sOutput, g_faTemp[iClient], g_saJumpTypes[g_iaJumpType[iClient]]);
-                    }
-                    else {
-                        Format(sOutput, sizeof(sOutput), "%s  Last Jump: Vertical\n", sOutput);
-                    }
-                    Format(sOutput, sizeof(sOutput), "%s  BunnyHops: %i", sOutput, g_iaBhops[iClient]);
-                    // feature to add: for 0 bunnyhops: show LJ Strafes (x% sync)
-                    //                 for 1 bunnyhop:  show BJ Strafes (x% sync)
-                    //                 for 2 bunnyhops: show Number of bunnyhops and average speed / sync / distance covered
-                    PrintHintText(iClient, sOutput);
-                }
-                else {
-                    if(IsClientObserver(iClient)) {
-                        new iSpecMode = GetEntProp(iClient, Prop_Send, "m_iObserverMode");
-                        if(iSpecMode == SPECMODE_FIRSTPERSON || iSpecMode == SPECMODE_3RDPERSON) {
-                            new iSpectatedClient = GetEntPropEnt(iClient, Prop_Send, "m_hObserverTarget");
-                            if(iSpectatedClient > 1 && iSpectatedClient <= MaxClients) {
-                                decl String:sOutput[256];
-                                if(g_iaButtons[iSpectatedClient] & IN_FORWARD)
-                                    Format(sOutput, sizeof(sOutput), "               [ W ]");
-                                else
-                                    Format(sOutput, sizeof(sOutput), "               [      ]");
-                                if(g_iaButtons[iSpectatedClient] & IN_ATTACK)
-                                    Format(sOutput, sizeof(sOutput), "%s                    [ATK1]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s                    [         ]", sOutput);
-                                if(g_iaButtons[iSpectatedClient] & IN_ATTACK2)
-                                    Format(sOutput, sizeof(sOutput), "%s  [ATK2]\n", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s  [          ]\n", sOutput);
-                                ////////
-                                if(g_iaButtons[iSpectatedClient] & IN_MOVELEFT)
-                                    Format(sOutput, sizeof(sOutput), "%s  [ A ]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s  [     ]", sOutput);
-                                if(g_iaButtons[iSpectatedClient] & IN_BACK)
-                                    Format(sOutput, sizeof(sOutput), "%s      [ S ]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s      [     ]", sOutput);
-                                if(g_iaButtons[iSpectatedClient] & IN_MOVERIGHT)
-                                    Format(sOutput, sizeof(sOutput), "%s      [ D ]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s      [     ]", sOutput);
-                                if(g_iaMouseDisplay[iSpectatedClient] & MOUSE_LEFT)
-                                    Format(sOutput, sizeof(sOutput), "%s       [\xc2\xab--]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s       [      ]", sOutput);
-                                if(g_iaMouseDisplay[iSpectatedClient] & MOUSE_RIGHT)
-                                    Format(sOutput, sizeof(sOutput), "%s         [--\xc2\xbb]\n", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s         [      ]\n", sOutput);
-                                ////////
-                                if(g_iaButtons[iSpectatedClient] & IN_DUCK)
-                                    Format(sOutput, sizeof(sOutput), "%s  [DUCK]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s  [          ]", sOutput);
-                                if(g_iaButtons[iSpectatedClient] & IN_JUMP)
-                                    Format(sOutput, sizeof(sOutput), "%s        [JUMP]", sOutput);
-                                else
-                                    Format(sOutput, sizeof(sOutput), "%s        [           ]", sOutput);
-                                Format(sOutput, sizeof(sOutput), "%s    |   Speed: %.1f", sOutput, GetPlayerSpeed(iSpectatedClient));
-                                PrintHintText(iClient, sOutput);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    for(new iClient = 1; iClient <= MaxClients; iClient++) {
-        g_iaButtons[iClient] = 0;
-        g_iaMouseDisplay[iClient] = 0;
-    }
-    return Plugin_Continue;
 }
 
 public OnWeaponFire(Handle:hEvent, const String:name[], bool:dontBroadcast)
@@ -715,16 +561,8 @@ public Action:Command_ToggleKnife(iClient, args)
     return Plugin_Handled;
 }
 
-public Action:Command_ToggleStats(iClient, args)
+public SetViewmodelVisibility(iClient, bool:bVisible)
 {
-    if(iClient > 0 && iClient <= MaxClients && IsClientInGame(iClient)) {
-        g_baStats[iClient] = !g_baStats[iClient];
-        PrintToChat(iClient, "  \x04[HNS] You have turned %s the HNS Stats.", g_baStats[iClient] ? "on" : "off");
-    }
-    return Plugin_Handled;
-}
-
-public SetViewmodelVisibility(iClient, bool:bVisible){
     if(bVisible)
         SetEntProp(iClient, Prop_Send, "m_bDrawViewmodel", bVisible);
     else
@@ -732,39 +570,8 @@ public SetViewmodelVisibility(iClient, bool:bVisible){
 
 }
 
-public SDKHook_StartTouch_Callback(iClient, touched){
-    if(g_bEnabled && iClient > 0 && iClient <= MaxClients && IsClientInGame(iClient)) {
-        if(g_baJumped[iClient] && IsPlayerAlive(iClient)) {
-            g_baCanJump[iClient] = true;
-            if(touched > 0 && touched <= MaxClients) {
-                g_baJumped[iClient] = false;
-                g_baCanBhop[iClient] = false;
-            }
-            else if(touched > MaxClients) {
-                g_baJumped[iClient] = false;
-                g_baCanBhop[iClient] = false;
-            }
-            else if(touched == 0) {
-                if(GetEntityFlags(iClient) & FL_ONGROUND) {
-                    if(!g_baJustHopped[iClient]) {
-                        if(!g_baCanBhop[iClient]) {
-                            CreateTimer(0.1, StopBhopRecord, iClient);
-                            g_baCanBhop[iClient] = true;
-                        }            
-                        CalculateDistance(iClient);
-                        g_baJumped[iClient] = false;
-                    }
-                }
-                else {
-                    g_baJumped[iClient] = false;
-                    g_baCanBhop[iClient] = false;
-                }
-            }
-        }
-    }
-}
-
-public OnEntityCreated(iEntity, const String:sClassName[]){
+public OnEntityCreated(iEntity, const String:sClassName[])
+{
     if(g_bEnabled) {    
         if(g_bFrostNades) {
             if(StrEqual(sClassName, "decoy_projectile")) {
@@ -861,9 +668,7 @@ public OnClientDisconnect(iClient)
         }
         g_baFrozen[iClient] = false;
     }
-    g_iaButtons[iClient] = 0;
     g_baToggleKnife[iClient] = true;
-    g_baStats[iClient] = true;
     g_baJumped[iClient] = false;
     g_iaFrame[iClient] = 0;
     g_iaBhops[iClient] = 0;
@@ -947,8 +752,6 @@ public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewV
         g_iSuicidePointsPenalty = StringToInt(sNewValue); else
     if(StrEqual("hns_molotov_friendly_fire", sConVarName))
         g_bMolotovFriendlyFire = GetConVarBool(g_hBlockConsoleKill); else
-    if(StrEqual("hns_stats", sConVarName))
-        g_bStats = GetConVarBool(g_hStats); else
     if(StrEqual("hns_airaccelerate", sConVarName)) {
         g_iAirAccelerate = StringToInt(sNewValue);
         if(g_iAirAccelerate) {
@@ -1230,138 +1033,10 @@ public Action:OnPlayerFlash(Handle:hEvent, const String:sName[], bool:bDontBroad
     return Plugin_Continue;
 }
 
-public Action:StopBhopRecord(Handle:hTimer, any:iClient)
-{
-    if(iClient > 0 && iClient <= MaxClients && IsClientInGame(iClient))
-        g_baCanBhop[iClient] = false;
-}
-
-public CalculateDistance(iClient)
-{
-    GetClientAbsOrigin(iClient, g_faLandCoord[iClient]);
-    new Float:fDelta;
-    if((g_faLandCoord[iClient][2] >= 0.0 && g_faJumpCoord[iClient][2] >= 0.0) || 
-    (g_faLandCoord[iClient][2] <= 0.0 && g_faJumpCoord[iClient][2] <= 0.0))
-        fDelta = FloatAbs(g_faLandCoord[iClient][2] - g_faJumpCoord[iClient][2]);
-    else
-        fDelta = FloatAbs(g_faLandCoord[iClient][2]) + FloatAbs(g_faJumpCoord[iClient][2]);
-    if(fDelta < 2.0) {
-        g_faJumpCoord[iClient][2] = 0.0;
-        g_faLandCoord[iClient][2] = 0.0;
-        g_faDistance[iClient] = GetVectorDistance(g_faJumpCoord[iClient], g_faLandCoord[iClient]) + 32.0;
-        if(g_faDistance[iClient] > MINIMUM_JUMP_DISTANCE) {
-            if(g_iaBhops[iClient] == 0)
-                g_iaJumpType[iClient] = JUMP_LJ;
-            else if(g_iaBhops[iClient] == 1)
-                g_iaJumpType[iClient] = JUMP_BHJ;
-            else
-                g_iaJumpType[iClient] = JUMP_MBHJ;
-        }
-    }
-    else
-        g_faDistance[iClient] = -1.0;
-}
-
 public Action:OnPlayerRunCmd(iClient, &iButtons, &iImpulse, Float:faVelocity[3], Float:faAngles[3], &iWeapon)
 {
     if(!g_bEnabled)
         return Plugin_Continue;
-    
-    // STATS START HERE
-    // Record buttons pressed for displaying
-    g_iaButtons[iClient] |= iButtons;
-    
-    // Record X-axis mouse movement for displaying
-    static Float:s_fLastXAngle[MAXPLAYERS + 1]
-    
-    // Recording angles every 9 frames for optimisation
-    if(g_iaFrame[iClient] == 8) {
-        // The following code is written as it is for optimisation (had to duplicate code)
-        if((s_fLastXAngle[iClient] < 0.0 && faAngles[1] < 0.0) || (s_fLastXAngle[iClient] > 0.0 && faAngles[1] > 0.0)) {
-            if(faAngles[1] > s_fLastXAngle[iClient])
-                g_iaMouseDisplay[iClient] |= MOUSE_LEFT;
-            else if(s_fLastXAngle[iClient] > faAngles[1])
-                g_iaMouseDisplay[iClient] |= MOUSE_RIGHT;
-        }
-        else if(s_fLastXAngle[iClient] > 90.0 || faAngles[1] > 90.0) {
-            if(faAngles[1] < 0.0)
-                g_iaMouseDisplay[iClient] |= MOUSE_LEFT;
-            else
-                g_iaMouseDisplay[iClient] |= MOUSE_RIGHT;
-        }
-        else {
-            if(faAngles[1] > s_fLastXAngle[iClient])
-                g_iaMouseDisplay[iClient] |= MOUSE_LEFT;
-            else if(s_fLastXAngle[iClient] > faAngles[1])
-                g_iaMouseDisplay[iClient] |= MOUSE_RIGHT;
-        }
-        s_fLastXAngle[iClient] = faAngles[1]
-    }
-    
-    // Avoid multiple detection of the same jump
-    g_iaFrame[iClient]++;
-    if(g_iaFrame[iClient] == 9) {
-        // The player is able to record a new bunny hop only after 9 frames from the last hop
-        g_baJustHopped[iClient] = false;
-        g_iaFrame[iClient] = 0;
-    }
-    
-    // Interrupt the jump recording if the player movement type changes (ladder, swimming for example)
-    if(g_baJumped[iClient] && GetEntityMoveType(iClient) != MOVETYPE_WALK) {
-        g_baJumped[iClient] = false;
-        g_iaBhops[iClient] = 0;
-    }
-    
-    // The player is on the ground
-    if(GetEntityFlags(iClient) & FL_ONGROUND) {
-        if(iButtons & IN_JUMP) {
-            if(g_baAntiJump[iClient] && !g_baJustHopped[iClient]) {       // avoid fake jumps and multiple bhop recordings (because runcmd runs on every frame and it can                                                                                                       // detect multiple instances of the same jump)
-                // Player jumped on the same frame as landing on the ground
-                if(g_baJumped[iClient]) {   // player jumped during the same frame he landed
-                    CalculateDistance(iClient);
-                    GetClientAbsOrigin(iClient, g_faJumpCoord[iClient]);
-                    g_iaBhops[iClient]++;            // counts the number of normal bhops
-                    g_iaFrame[iClient] = 0;            // used to avoid multiple recordings of a jump
-                    g_baJustHopped[iClient] = true;    // the player bhopped, used to avoid multiple recordings
-                    g_baJumped[iClient] = true;        // the player jumped (landing will set this to false)
-                    g_baCanJump[iClient] = false;    // this variable looks like the opposite of g_baJumped but it is needed to avoid multiple recordings of both perf and norm bhops
-                }
-                else if(g_baCanJump[iClient]) {
-                    GetClientAbsOrigin(iClient, g_faJumpCoord[iClient]);
-                    if(g_baCanBhop[iClient])        // the bhop time hasn't expired yet
-                        g_iaBhops[iClient]++;
-                    else {
-                        g_iaBhops[iClient] = 0;
-                    }
-                    g_iaFrame[iClient] = 0;
-                    g_baJustHopped[iClient] = true;
-                    g_baJumped[iClient] = true;
-                    g_baCanJump[iClient] = false;
-                }
-            }
-            else
-                g_baJumped[iClient] = false;
-        }
-        else {    //the player didn't +jump this time (so we can assume a -jump was made before or even now)
-            g_baCanJump[iClient] = true;
-            if(g_baJumped[iClient]) {
-                g_baJumped[iClient] = false;
-                if(!g_baJustHopped[iClient]) {        // player jumped before
-                    if(!g_baCanBhop[iClient]) {  // this should be moved to recently landed, not stopped jumping
-                        CreateTimer(0.1, StopBhopRecord, iClient);    // give the player a chance to bhop
-                        g_baCanBhop[iClient] = true;
-                    }      
-                    CalculateDistance(iClient);
-                }
-            }
-        }
-    }
-    
-    if(!(iButtons & IN_JUMP))
-        g_baAntiJump[iClient] = true;    // -jump has been recorded
-    else
-        g_baAntiJump[iClient] = false;   // +jump as been recorded
-    // STATS END HERE
     
     if(!g_bAttackWhileFrozen && g_baFrozen[iClient]) {
         iButtons &= ~(IN_ATTACK | IN_ATTACK2);
@@ -1370,7 +1045,7 @@ public Action:OnPlayerRunCmd(iClient, &iButtons, &iImpulse, Float:faVelocity[3],
     
     new Float:fCurrentTime = GetGameTime();
     if(GetClientTeam(iClient) == CS_TEAM_T) {
-        if (iButtons & (IN_ATTACK | IN_ATTACK2)) {
+        if (iButtons & (IN_ATTACK | IN_ATTACK2)) {  //this might be unnecessary
             new iActiveWeapon = GetEntPropEnt(iClient, Prop_Send, "m_hActiveWeapon");
             if(IsValidEntity(iActiveWeapon)) {
                 decl String:sWeaponName[64];
@@ -1460,23 +1135,6 @@ public Action:OnRoundEnd(Handle:hEvent, const String:name[], bool:dontBroadcast)
         SetTeamScore(CS_TEAM_T, iCTScore);
     }
     return Plugin_Continue;
-}
-
-stock Float:GetPlayerSpeed(iClient)
-{
-    new Float:faVelocity[3];
-    GetEntPropVector(iClient, Prop_Data, "m_vecVelocity", faVelocity);
-    new Float:fSpeed;
-    //fSpeed = GetVectorLength(faVelocity, false);
-    fSpeed = SquareRoot(faVelocity[0] * faVelocity[0] + faVelocity[1] * faVelocity[1]);    
-    new iWeapon = GetEntPropEnt(iClient, Prop_Send, "m_hActiveWeapon");
-    if(IsValidEdict(iWeapon)) {
-        decl String:sWeaponName[64];
-        GetEntityClassname(iWeapon, sWeaponName, sizeof(sWeaponName));
-        if(IsWeaponGrenade(sWeaponName))
-            fSpeed *= g_fGrenadeSpeedMultiplier;
-    }
-    return fSpeed;
 }
 
 stock RemoveNades(iClient)
