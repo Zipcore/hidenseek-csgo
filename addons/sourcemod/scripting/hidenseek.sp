@@ -56,6 +56,8 @@
 #define MOLOTOV_FRIENDLY_FIRE         "0"
 
 // RespawnMode Defines
+#define RESPAWN_MODE                  "1"
+#define INVISIBILITY_DURATION         "5"
 #define BASE_RESPAWN_TIME             "5"
 
 // Fade Defines
@@ -131,7 +133,9 @@ new Handle:g_hFrostNadesDetonationRing = INVALID_HANDLE;
 new Handle:g_hBlockConsoleKill = INVALID_HANDLE;
 new Handle:g_hSuicidePointsPenalty = INVALID_HANDLE;
 new Handle:g_hMolotovFriendlyFire = INVALID_HANDLE;
+new Handle:g_hRespawnMode = INVALID_HANDLE;
 new Handle:g_hBaseRespawnTime = INVALID_HANDLE;
+new Handle:g_hInvisibilityDuration = INVALID_HANDLE
 
 new bool:g_bEnabled;
 new Float:g_fCountdownTime;
@@ -156,10 +160,12 @@ new g_iSuicidePointsPenalty;
 new bool:g_bMolotovFriendlyFire;
 new Float:g_faGrenadeChance[6] = {0.0, ...};
 new g_iaGrenadeMaximumAmounts[6] = {0, ...};
+new bool:g_bRespawnMode = true;
 new Float:g_fBaseRespawnTime;
+new Float:g_fInvisibilityDuration;
 
 //RespawnMode vars
-new bool:g_bRespawnMode = true;
+new Handle:g_hInvisible[MAXPLAYERS + 1] = {INVALID_HANDLE, ...};
 
 //Roundstart vars    
 new Float:g_fRoundStartTime;    // Records the time when the round started
@@ -281,7 +287,9 @@ public OnPluginStart()
     g_hBlockConsoleKill = CreateConVar("hns_block_console_kill", BLOCK_CONSOLE_KILL, "Blocks the kill command (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
     g_hSuicidePointsPenalty = CreateConVar("hns_suicide_points_penalty", SUICIDE_POINTS_PENALTY, "The amount of points players lose when dying by fall without enemy assists", _, true, 0.0);
     g_hMolotovFriendlyFire = CreateConVar("hns_molotov_friendly_fire", MOLOTOV_FRIENDLY_FIRE, "Allows molotov friendly fire (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
+    g_hRespawnMode = CreateConVar("hns_respawn_mode", RESPAWN_MODE, "Turns the Respawn mode On/Off (0=OFF, 1=ON)", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_hBaseRespawnTime = CreateConVar("hns_base_respawn_time", BASE_RESPAWN_TIME, "The minimum time, without additions, it takes to respawn", _, true, 0.0)
+    g_hInvisibilityDuration = CreateConVar("hns_respawn_invisibility_duration", INVISIBILITY_DURATION, "The time in seconds Ts get invisibility after respawning.", _, true, 0.0);
     // Remember to add HOOKS to OnCvarChange and modify OnConfigsExecuted
 
     //Enforce some server ConVars
@@ -322,7 +330,9 @@ public OnPluginStart()
     HookConVarChange(g_hBlockConsoleKill, OnCvarChange);
     HookConVarChange(g_hSuicidePointsPenalty, OnCvarChange);
     HookConVarChange(g_hMolotovFriendlyFire, OnCvarChange);
+    HookConVarChange(g_hRespawnMode, OnCvarChange);
     HookConVarChange(g_hBaseRespawnTime, OnCvarChange);
+    HookConVarChange(g_hInvisibilityDuration, OnCvarChange);
     
     //Hooked'em
     HookEvent("player_spawn", OnPlayerSpawn);
@@ -365,7 +375,9 @@ public OnConfigsExecuted()
     g_iRoundPoints = GetConVarInt(g_hRoundPoints);
     g_iBonusPointsMultiplier = GetConVarInt(g_hBonusPointsMultiplier);
     g_iMaximumWinStreak = GetConVarInt(g_hMaximumWinStreak);
+    g_bRespawnMode = GetConVarBool(g_hRespawnMode);
     g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime);
+    g_fInvisibilityDuration = GetConVarFloat(g_hInvisibilityDuration);
     
     g_faGrenadeChance[NADE_FLASHBANG] = GetConVarFloat(g_hFlashbangChance);
     g_faGrenadeChance[NADE_MOLOTOV] = GetConVarFloat(g_hMolotovChance);
@@ -457,8 +469,12 @@ public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewV
         g_iSuicidePointsPenalty = StringToInt(sNewValue); else
     if(StrEqual("hns_molotov_friendly_fire", sConVarName))
         g_bMolotovFriendlyFire = GetConVarBool(g_hBlockConsoleKill); else
+    if(StrEqual("hns_respawn_mode", sConVarName))
+        g_bRespawnMode = GetConVarBool(g_hRespawnMode); else
     if(StrEqual("hns_base_respawn_time", sConVarName))
         g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime); else
+    if(StrEqual("hns_respawn_invisibility_duration", sConVarName))
+        g_fInvisibilityDuration = GetConVarFloat(g_hInvisibilityDuration); else
     if(StrEqual("hns_airaccelerate", sConVarName)) {
         g_iAirAccelerate = StringToInt(sNewValue);
         if(g_iAirAccelerate) {
@@ -669,6 +685,30 @@ public SetViewmodelVisibility(iClient, bool:bVisible)
 
 }
 
+public MakeClientInvisible(iClient, Float:fDuration)
+{
+    SDKHook(iClient, SDKHook_SetTransmit, Hook_SetTransmit);
+    PrintToChat(iClient, "  \x04[HNS] You are now invisible for %.1f seconds.", fDuration);
+
+    if(g_hInvisible[iClient] != INVALID_HANDLE)
+        KillTimer(g_hInvisible[iClient]);
+    g_hInvisible[iClient] = CreateTimer(g_fInvisibilityDuration, MakeClientVisible, iClient, TIMER_FLAG_NO_MAPCHANGE);
+}  
+
+public Action:MakeClientVisible(Handle:hTimer, any:iClient)
+{
+    SDKUnhook(iClient, SDKHook_SetTransmit, Hook_SetTransmit);
+    g_hInvisible[iClient] = INVALID_HANDLE;
+    PrintToChat(iClient, "  \x04[HNS] You are now visible again.");
+}
+
+public Action:Hook_SetTransmit(iClient, iEntity)
+{
+    if(iClient == iEntity)
+        return Plugin_Continue;
+    return Plugin_Handled;
+}  
+
 public OnEntityCreated(iEntity, const String:sClassName[])
 {
     if(g_bEnabled) {    
@@ -759,6 +799,7 @@ public OnClientDisconnect(iClient)
     SDKUnhook(iClient, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
     SDKUnhook(iClient, SDKHook_WeaponCanUse, OnWeaponCanUse);
     SDKUnhook(iClient, SDKHook_OnTakeDamage, OnTakeDamage);
+    SDKUnhook(iClient, SDKHook_SetTransmit, Hook_SetTransmit);
     if(g_baFrozen[iClient]) {
         if(g_haFreezeTimer[iClient] != INVALID_HANDLE) {
             KillTimer(g_haFreezeTimer[iClient])
@@ -787,6 +828,10 @@ public Action:OnPlayerSpawn(Handle:hEvent, const String:sName[], bool:bDontBroad
     if(!g_bEnabled)
         return Plugin_Continue;
     new iId = GetEventInt(hEvent, "userid");
+    new iClient = GetClientOfUserId(iId);
+
+    if(g_bRespawnMode)
+        MakeClientInvisible(iClient, g_fInvisibilityDuration);
 
     CreateTimer(0.1, OnPlayerSpawnDelay, iId);
         
@@ -844,8 +889,8 @@ public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
 
 public Action:RespawnPlayer(Handle:hTimer, any:iClient)
 {
-    if(iClient > 0 && iClient < MaxPlayers && IsClientInGame(iClient)) {
-        if(!IsClientAlive(iClient))
+    if(iClient > 0 && iClient < MaxClients && IsClientInGame(iClient)) {
+        if(!IsPlayerAlive(iClient))
             if(GetClientTeam(iClient) == CS_TEAM_T || GetClientTeam(iClient) == CS_TEAM_CT)
                 CS_RespawnPlayer(iClient);
     }
@@ -1029,7 +1074,7 @@ public Action:OnPlayerDeath(Handle:hEvent, const String:sName[], bool:bDontBroad
     }
 
     if(g_bRespawnMode) {
-        CreateTimer(g_fBaseRespawnTime, RespawnPlayer, iClient, TIMER_FLAG_NO_MAPCHANGE);
+        CreateTimer(g_fBaseRespawnTime, RespawnPlayer, iVictim, TIMER_FLAG_NO_MAPCHANGE);
     }
     return Plugin_Continue;
 }
