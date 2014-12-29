@@ -22,7 +22,7 @@
 #include <cstrike>
 
 // ConVar Defines
-#define PLUGIN_VERSION                "1.5.4"
+#define PLUGIN_VERSION                "1.5.5"
 #define HIDENSEEK_ENABLED             "1"
 #define COUNTDOWN_TIME                "10.0"
 #define AIR_ACC                       "100"
@@ -30,7 +30,7 @@
 #define BONUS_POINTS                  "2"
 #define MAXIMUM_WIN_STREAK            "5"
 #define FLASHBANG_CHANCE              "0.6"
-#define MOLOTOV_CHANCE                "0.20"
+#define MOLOTOV_CHANCE                "0.05"
 #define SMOKE_CHANCE                  "0.0"
 #define DECOY_CHANCE                  "0.75"
 #define HE_CHANCE                     "0.0"
@@ -660,7 +660,6 @@ public OnClientDisconnect(iClient)
     SDKUnhook(iClient, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
     SDKUnhook(iClient, SDKHook_WeaponCanUse, OnWeaponCanUse);
     SDKUnhook(iClient, SDKHook_OnTakeDamage, OnTakeDamage);
-    SDKUnhook(iClient, SDKHook_StartTouch, SDKHook_StartTouch_Callback);
     if(g_baFrozen[iClient]) {
         if(g_haFreezeTimer[iClient] != INVALID_HANDLE) {
             KillTimer(g_haFreezeTimer[iClient])
@@ -669,11 +668,6 @@ public OnClientDisconnect(iClient)
         g_baFrozen[iClient] = false;
     }
     g_baToggleKnife[iClient] = true;
-    g_baJumped[iClient] = false;
-    g_iaFrame[iClient] = 0;
-    g_iaBhops[iClient] = 0;
-    g_baCanJump[iClient] = true;
-    g_faTemp[iClient] = 0.0;
 }
 
 public Action:OnWeaponCanUse(iClient, iWeapon)
@@ -811,7 +805,6 @@ public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
             
         SetViewmodelVisibility(iClient, g_baToggleKnife[iClient]);  //might fix a game bug
                 
-        g_iaBhops[iClient] = 0;
         if(g_baFrozen[iClient])
             SilentUnfreeze(iClient);
         new iWeapon = GetPlayerWeaponSlot(iClient, 2);
@@ -841,7 +834,6 @@ public OnClientPutInServer(iClient)
     SDKHook(iClient, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
     SDKHook(iClient, SDKHook_WeaponCanUse, OnWeaponCanUse);
     SDKHook(iClient, SDKHook_OnTakeDamage, OnTakeDamage);
-    SDKHook(iClient, SDKHook_StartTouch, SDKHook_StartTouch_Callback);
 }
 
 public Action:Command_JoinTeam(iClient, const String:sCommand[], iArgCount)
