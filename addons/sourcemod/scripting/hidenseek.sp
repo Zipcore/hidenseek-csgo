@@ -55,6 +55,9 @@
 #define SUICIDE_POINTS_PENALTY        "3"
 #define MOLOTOV_FRIENDLY_FIRE         "0"
 
+// RespawnMode Defines
+#define BASE_RESPAWN_TIME             "5"
+
 // Fade Defines
 #define FFADE_IN               0x0001
 #define FFADE_OUT              0x0002
@@ -128,6 +131,7 @@ new Handle:g_hFrostNadesDetonationRing = INVALID_HANDLE;
 new Handle:g_hBlockConsoleKill = INVALID_HANDLE;
 new Handle:g_hSuicidePointsPenalty = INVALID_HANDLE;
 new Handle:g_hMolotovFriendlyFire = INVALID_HANDLE;
+new Handle:g_hBaseRespawnTime = INVALID_HANDLE;
 
 new bool:g_bEnabled;
 new Float:g_fCountdownTime;
@@ -152,6 +156,10 @@ new g_iSuicidePointsPenalty;
 new bool:g_bMolotovFriendlyFire;
 new Float:g_faGrenadeChance[6] = {0.0, ...};
 new g_iaGrenadeMaximumAmounts[6] = {0, ...};
+new Float:g_fBaseRespawnTime;
+
+//RespawnMode vars
+new bool:g_bRespawnMode = true;
 
 //Roundstart vars    
 new Float:g_fRoundStartTime;    // Records the time when the round started
@@ -273,6 +281,7 @@ public OnPluginStart()
     g_hBlockConsoleKill = CreateConVar("hns_block_console_kill", BLOCK_CONSOLE_KILL, "Blocks the kill command (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
     g_hSuicidePointsPenalty = CreateConVar("hns_suicide_points_penalty", SUICIDE_POINTS_PENALTY, "The amount of points players lose when dying by fall without enemy assists", _, true, 0.0);
     g_hMolotovFriendlyFire = CreateConVar("hns_molotov_friendly_fire", MOLOTOV_FRIENDLY_FIRE, "Allows molotov friendly fire (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
+    g_hBaseRespawnTime = CreateConVar("hns_base_respawn_time", BASE_RESPAWN_TIME, "The minimum time, without additions, it takes to respawn", _, true, 0.0)
     // Remember to add HOOKS to OnCvarChange and modify OnConfigsExecuted
 
     //Enforce some server ConVars
@@ -313,6 +322,7 @@ public OnPluginStart()
     HookConVarChange(g_hBlockConsoleKill, OnCvarChange);
     HookConVarChange(g_hSuicidePointsPenalty, OnCvarChange);
     HookConVarChange(g_hMolotovFriendlyFire, OnCvarChange);
+    HookConVarChange(g_hBaseRespawnTime, OnCvarChange);
     
     //Hooked'em
     HookEvent("player_spawn", OnPlayerSpawn);
@@ -355,6 +365,7 @@ public OnConfigsExecuted()
     g_iRoundPoints = GetConVarInt(g_hRoundPoints);
     g_iBonusPointsMultiplier = GetConVarInt(g_hBonusPointsMultiplier);
     g_iMaximumWinStreak = GetConVarInt(g_hMaximumWinStreak);
+    g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime);
     
     g_faGrenadeChance[NADE_FLASHBANG] = GetConVarFloat(g_hFlashbangChance);
     g_faGrenadeChance[NADE_MOLOTOV] = GetConVarFloat(g_hMolotovChance);
@@ -381,6 +392,94 @@ public OnConfigsExecuted()
     g_bBlockConsoleKill = GetConVarBool(g_hBlockConsoleKill);
     g_iSuicidePointsPenalty = GetConVarInt(g_hSuicidePointsPenalty);
     g_bMolotovFriendlyFire = GetConVarBool(g_hMolotovFriendlyFire);
+}
+
+public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewValue[])
+{
+    decl String:sConVarName[64];
+    GetConVarName(hConVar, sConVarName, sizeof(sConVarName));
+
+    if(StrEqual("hns_enabled", sConVarName))
+        g_bEnabled = GetConVarBool(hConVar); else
+    if(StrEqual("hns_countdown_time", sConVarName))
+        g_fCountdownTime = StringToFloat(sNewValue); else
+    if(StrEqual("hns_countdown_fade", sConVarName))
+        g_bCountdownFade = GetConVarBool(hConVar); else
+    if(StrEqual("hns_round_points", sConVarName))
+        g_iRoundPoints = StringToInt(sNewValue); else
+    if(StrEqual("hns_bonus_points_multiplier", sConVarName))
+        g_iBonusPointsMultiplier = StringToInt(sNewValue); else
+    if(StrEqual("hns_maximum_win_streak", sConVarName))
+        g_iMaximumWinStreak = StringToInt(sNewValue); else
+    if(StrEqual("hns_flashbang_chance", sConVarName))
+        g_faGrenadeChance[NADE_FLASHBANG] = StringToFloat(sNewValue); else
+    if(StrEqual("hns_molotov_chance", sConVarName))
+        g_faGrenadeChance[NADE_MOLOTOV] = StringToFloat(sNewValue); else
+    if(StrEqual("hns_smoke_grenade_chance", sConVarName))
+        g_faGrenadeChance[NADE_SMOKE] = StringToFloat(sNewValue); else
+    if(StrEqual("hns_decoy_chance", sConVarName))
+        g_faGrenadeChance[NADE_DECOY] = StringToFloat(sNewValue); else
+    if(StrEqual("hns_he_grenade_chance", sConVarName))
+        g_faGrenadeChance[NADE_HE] = StringToFloat(sNewValue); else
+    if(StrEqual("hns_flashbang_maximum_amount", sConVarName))
+        g_iaGrenadeMaximumAmounts[NADE_FLASHBANG] = StringToInt(sNewValue); else
+    if(StrEqual("hns_molotov_maximum_amount", sConVarName))
+        g_iaGrenadeMaximumAmounts[NADE_MOLOTOV] = StringToInt(sNewValue); else
+    if(StrEqual("hns_smoke_grenade_maximum_amount", sConVarName))
+        g_iaGrenadeMaximumAmounts[NADE_SMOKE] = StringToInt(sNewValue); else
+    if(StrEqual("hns_decoy_maximum_amount", sConVarName))
+        g_iaGrenadeMaximumAmounts[NADE_DECOY] = StringToInt(sNewValue); else
+    if(StrEqual("hns_he_grenade_maximum_amount", sConVarName))
+        g_iaGrenadeMaximumAmounts[NADE_HE] = StringToInt(sNewValue); else
+    if(StrEqual("hns_flash_blind_disable", sConVarName))
+        g_iFlashBlindDisable = StringToInt(sNewValue); else
+    if(StrEqual("hns_attack_while_frozen", sConVarName))
+        g_bAttackWhileFrozen = GetConVarBool(hConVar); else
+    if(StrEqual("hns_frostnades", sConVarName))
+        g_bFrostNades = GetConVarBool(hConVar); else
+    if(StrEqual("hns_self_freeze", sConVarName))
+        g_bSelfFreeze = GetConVarBool(hConVar); else
+    if(StrEqual("hns_freeze_glow", sConVarName))
+        g_bFreezeGlow = GetConVarBool(hConVar); else
+    if(StrEqual("hns_freeze_duration", sConVarName))
+        g_fFreezeDuration = StringToFloat(sNewValue); else
+    if(StrEqual("hns_freeze_fade", sConVarName))
+        g_bFreezeFade = GetConVarBool(hConVar); else
+    if(StrEqual("hns_frostnades_trail", sConVarName))
+        g_bFrostNadesTrail = GetConVarBool(hConVar); else
+    if(StrEqual("hns_freeze_radius", sConVarName))
+        g_fFreezeRadius = StringToFloat(sNewValue); else
+    if(StrEqual("hns_frostnades_detonation_ring", sConVarName))
+        g_bFrostNadesDetonationRing = GetConVarBool(hConVar); else
+    if(StrEqual("hns_block_console_kill", sConVarName))
+        g_bBlockConsoleKill = GetConVarBool(g_hBlockConsoleKill); else
+    if(StrEqual("hns_suicide_points_penalty", sConVarName))
+        g_iSuicidePointsPenalty = StringToInt(sNewValue); else
+    if(StrEqual("hns_molotov_friendly_fire", sConVarName))
+        g_bMolotovFriendlyFire = GetConVarBool(g_hBlockConsoleKill); else
+    if(StrEqual("hns_base_respawn_time", sConVarName))
+        g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime); else
+    if(StrEqual("hns_airaccelerate", sConVarName)) {
+        g_iAirAccelerate = StringToInt(sNewValue);
+        if(g_iAirAccelerate) {
+            for(new i = 0; i < sizeof(g_saProtectedConVars); i++) {
+                if(StrEqual(g_saProtectedConVars[i], "sv_airaccelerate")) {
+                    g_iaForcedValues[i] = g_iAirAccelerate;
+                    SetConVarInt(FindConVar("sv_airaccelerate"), g_iAirAccelerate);    //why even try to change
+                }
+            }
+        }
+    }
+    else {
+        if(!(StrEqual("sv_airaccelerate", sConVarName) && !g_iAirAccelerate)) {
+            for(new i = 0; i < sizeof(g_saProtectedConVars); i++) {
+                if(StrEqual(g_saProtectedConVars[i], sConVarName) && StringToInt(sNewValue) != g_iaForcedValues[i]) {
+                    SetConVarInt(hConVar, g_iaForcedValues[i]);
+                    PrintToServer("  \x04[HNS] %s is a protected CVAR.", sConVarName);
+                }
+            }
+        }
+    }
 }
 
 public OnMapStart()
@@ -683,92 +782,6 @@ public Action:OnWeaponCanUse(iClient, iWeapon)
     return Plugin_Continue;
 }
 
-public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewValue[])
-{
-    decl String:sConVarName[64];
-    GetConVarName(hConVar, sConVarName, sizeof(sConVarName));
-
-    if(StrEqual("hns_enabled", sConVarName))
-        g_bEnabled = GetConVarBool(hConVar); else
-    if(StrEqual("hns_countdown_time", sConVarName))
-        g_fCountdownTime = StringToFloat(sNewValue); else
-    if(StrEqual("hns_countdown_fade", sConVarName))
-        g_bCountdownFade = GetConVarBool(hConVar); else
-    if(StrEqual("hns_round_points", sConVarName))
-        g_iRoundPoints = StringToInt(sNewValue); else
-    if(StrEqual("hns_bonus_points_multiplier", sConVarName))
-        g_iBonusPointsMultiplier = StringToInt(sNewValue); else
-    if(StrEqual("hns_maximum_win_streak", sConVarName))
-        g_iMaximumWinStreak = StringToInt(sNewValue); else
-    if(StrEqual("hns_flashbang_chance", sConVarName))
-        g_faGrenadeChance[NADE_FLASHBANG] = StringToFloat(sNewValue); else
-    if(StrEqual("hns_molotov_chance", sConVarName))
-        g_faGrenadeChance[NADE_MOLOTOV] = StringToFloat(sNewValue); else
-    if(StrEqual("hns_smoke_grenade_chance", sConVarName))
-        g_faGrenadeChance[NADE_SMOKE] = StringToFloat(sNewValue); else
-    if(StrEqual("hns_decoy_chance", sConVarName))
-        g_faGrenadeChance[NADE_DECOY] = StringToFloat(sNewValue); else
-    if(StrEqual("hns_he_grenade_chance", sConVarName))
-        g_faGrenadeChance[NADE_HE] = StringToFloat(sNewValue); else
-    if(StrEqual("hns_flashbang_maximum_amount", sConVarName))
-        g_iaGrenadeMaximumAmounts[NADE_FLASHBANG] = StringToInt(sNewValue); else
-    if(StrEqual("hns_molotov_maximum_amount", sConVarName))
-        g_iaGrenadeMaximumAmounts[NADE_MOLOTOV] = StringToInt(sNewValue); else
-    if(StrEqual("hns_smoke_grenade_maximum_amount", sConVarName))
-        g_iaGrenadeMaximumAmounts[NADE_SMOKE] = StringToInt(sNewValue); else
-    if(StrEqual("hns_decoy_maximum_amount", sConVarName))
-        g_iaGrenadeMaximumAmounts[NADE_DECOY] = StringToInt(sNewValue); else
-    if(StrEqual("hns_he_grenade_maximum_amount", sConVarName))
-        g_iaGrenadeMaximumAmounts[NADE_HE] = StringToInt(sNewValue); else
-    if(StrEqual("hns_flash_blind_disable", sConVarName))
-        g_iFlashBlindDisable = StringToInt(sNewValue); else
-    if(StrEqual("hns_attack_while_frozen", sConVarName))
-        g_bAttackWhileFrozen = GetConVarBool(hConVar); else
-    if(StrEqual("hns_frostnades", sConVarName))
-        g_bFrostNades = GetConVarBool(hConVar); else
-    if(StrEqual("hns_self_freeze", sConVarName))
-        g_bSelfFreeze = GetConVarBool(hConVar); else
-    if(StrEqual("hns_freeze_glow", sConVarName))
-        g_bFreezeGlow = GetConVarBool(hConVar); else
-    if(StrEqual("hns_freeze_duration", sConVarName))
-        g_fFreezeDuration = StringToFloat(sNewValue); else
-    if(StrEqual("hns_freeze_fade", sConVarName))
-        g_bFreezeFade = GetConVarBool(hConVar); else
-    if(StrEqual("hns_frostnades_trail", sConVarName))
-        g_bFrostNadesTrail = GetConVarBool(hConVar); else
-    if(StrEqual("hns_freeze_radius", sConVarName))
-        g_fFreezeRadius = StringToFloat(sNewValue); else
-    if(StrEqual("hns_frostnades_detonation_ring", sConVarName))
-        g_bFrostNadesDetonationRing = GetConVarBool(hConVar); else
-    if(StrEqual("hns_block_console_kill", sConVarName))
-        g_bBlockConsoleKill = GetConVarBool(g_hBlockConsoleKill); else
-    if(StrEqual("hns_suicide_points_penalty", sConVarName))
-        g_iSuicidePointsPenalty = StringToInt(sNewValue); else
-    if(StrEqual("hns_molotov_friendly_fire", sConVarName))
-        g_bMolotovFriendlyFire = GetConVarBool(g_hBlockConsoleKill); else
-    if(StrEqual("hns_airaccelerate", sConVarName)) {
-        g_iAirAccelerate = StringToInt(sNewValue);
-        if(g_iAirAccelerate) {
-            for(new i = 0; i < sizeof(g_saProtectedConVars); i++) {
-                if(StrEqual(g_saProtectedConVars[i], "sv_airaccelerate")) {
-                    g_iaForcedValues[i] = g_iAirAccelerate;
-                    SetConVarInt(FindConVar("sv_airaccelerate"), g_iAirAccelerate);    //why even try to change
-                }
-            }
-        }
-    }
-    else {
-        if(!(StrEqual("sv_airaccelerate", sConVarName) && !g_iAirAccelerate)) {
-            for(new i = 0; i < sizeof(g_saProtectedConVars); i++) {
-                if(StrEqual(g_saProtectedConVars[i], sConVarName) && StringToInt(sNewValue) != g_iaForcedValues[i]) {
-                    SetConVarInt(hConVar, g_iaForcedValues[i]);
-                    PrintToServer("  \x04[HNS] %s is a protected CVAR.", sConVarName);
-                }
-            }
-        }
-    }
-}
-
 public Action:OnPlayerSpawn(Handle:hEvent, const String:sName[], bool:bDontBroadcast)
 {
     if(!g_bEnabled)
@@ -827,6 +840,15 @@ public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
         }    
     }
     return Plugin_Continue;
+}
+
+public Action:RespawnPlayer(Handle:hTimer, any:iClient)
+{
+    if(iClient > 0 && iClient < MaxPlayers && IsClientInGame(iClient)) {
+        if(!IsClientAlive(iClient))
+            if(GetClientTeam(iClient) == CS_TEAM_T || GetClientTeam(iClient) == CS_TEAM_CT)
+                CS_RespawnPlayer(iClient);
+    }
 }
 
 public OnClientPutInServer(iClient)
@@ -1004,6 +1026,10 @@ public Action:OnPlayerDeath(Handle:hEvent, const String:sName[], bool:bDontBroad
             CS_SetClientContributionScore(iVictim, CS_GetClientContributionScore(iVictim) - g_iSuicidePointsPenalty);
             PrintToChat(iVictim, "  \x04[HNS] You died by fall without an enemy assist. You lose %d points.", g_iSuicidePointsPenalty);
         }
+    }
+
+    if(g_bRespawnMode) {
+        CreateTimer(g_fBaseRespawnTime, RespawnPlayer, iClient, TIMER_FLAG_NO_MAPCHANGE);
     }
     return Plugin_Continue;
 }
