@@ -54,11 +54,11 @@
 #define BLOCK_CONSOLE_KILL            "1"
 #define SUICIDE_POINTS_PENALTY        "3"
 #define MOLOTOV_FRIENDLY_FIRE         "0"
-
 // RespawnMode Defines
 #define RESPAWN_MODE                  "1"
 #define INVISIBILITY_DURATION         "5"
 #define BASE_RESPAWN_TIME             "5"
+#define CT_RESPAWN_SLEEP_DURATION     "5"
 
 // Fade Defines
 #define FFADE_IN               0x0001
@@ -135,7 +135,8 @@ new Handle:g_hSuicidePointsPenalty = INVALID_HANDLE;
 new Handle:g_hMolotovFriendlyFire = INVALID_HANDLE;
 new Handle:g_hRespawnMode = INVALID_HANDLE;
 new Handle:g_hBaseRespawnTime = INVALID_HANDLE;
-new Handle:g_hInvisibilityDuration = INVALID_HANDLE
+new Handle:g_hInvisibilityDuration = INVALID_HANDLE;
+new Handle:g_hCTRespawnSleepDuration = INVALID_HANDLE;
 
 new bool:g_bEnabled;
 new Float:g_fCountdownTime;
@@ -163,9 +164,12 @@ new g_iaGrenadeMaximumAmounts[6] = {0, ...};
 new bool:g_bRespawnMode = true;
 new Float:g_fBaseRespawnTime;
 new Float:g_fInvisibilityDuration;
+new Float:g_fCTRespawnSleepDuration;
 
 //RespawnMode vars
 new Handle:g_hInvisible[MAXPLAYERS + 1] = {INVALID_HANDLE, ...};
+new Handle:g_hRespawnCountdownMessage[MAXPLAYERS + 1] = {INVALID_HANDLE, ...};
+new g_iRespawnCountdownCount[MAXPLAYERS + 1] = {0, ...};
 
 //Roundstart vars    
 new Float:g_fRoundStartTime;    // Records the time when the round started
@@ -288,8 +292,9 @@ public OnPluginStart()
     g_hSuicidePointsPenalty = CreateConVar("hns_suicide_points_penalty", SUICIDE_POINTS_PENALTY, "The amount of points players lose when dying by fall without enemy assists", _, true, 0.0);
     g_hMolotovFriendlyFire = CreateConVar("hns_molotov_friendly_fire", MOLOTOV_FRIENDLY_FIRE, "Allows molotov friendly fire (0=DSBL, 1=ENBL)", _, true, 0.0, true, 1.0);
     g_hRespawnMode = CreateConVar("hns_respawn_mode", RESPAWN_MODE, "Turns the Respawn mode On/Off (0=OFF, 1=ON)", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-    g_hBaseRespawnTime = CreateConVar("hns_base_respawn_time", BASE_RESPAWN_TIME, "The minimum time, without additions, it takes to respawn", _, true, 0.0)
+    g_hBaseRespawnTime = CreateConVar("hns_base_respawn_time", BASE_RESPAWN_TIME, "The minimum time, without additions, it takes to respawn", _, true, 0.0);
     g_hInvisibilityDuration = CreateConVar("hns_respawn_invisibility_duration", INVISIBILITY_DURATION, "The time in seconds Ts get invisibility after respawning.", _, true, 0.0);
+    g_hCTRespawnSleepDuration = CreateConVar("hns_ct_respawn_sleep_duration", CT_RESPAWN_SLEEP_DURATION, "The duration after respawning during which CTs are asleep in Respawn mode", _, true, 0.0);
     // Remember to add HOOKS to OnCvarChange and modify OnConfigsExecuted
 
     //Enforce some server ConVars
@@ -333,6 +338,7 @@ public OnPluginStart()
     HookConVarChange(g_hRespawnMode, OnCvarChange);
     HookConVarChange(g_hBaseRespawnTime, OnCvarChange);
     HookConVarChange(g_hInvisibilityDuration, OnCvarChange);
+    HookConVarChange(g_hCTRespawnSleepDuration, OnCvarChange);
     
     //Hooked'em
     HookEvent("player_spawn", OnPlayerSpawn);
@@ -378,6 +384,7 @@ public OnConfigsExecuted()
     g_bRespawnMode = GetConVarBool(g_hRespawnMode);
     g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime);
     g_fInvisibilityDuration = GetConVarFloat(g_hInvisibilityDuration);
+    g_fCTRespawnSleepDuration = GetConVarFloat(g_hCTRespawnSleepDuration);
     
     g_faGrenadeChance[NADE_FLASHBANG] = GetConVarFloat(g_hFlashbangChance);
     g_faGrenadeChance[NADE_MOLOTOV] = GetConVarFloat(g_hMolotovChance);
@@ -464,17 +471,19 @@ public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewV
     if(StrEqual("hns_frostnades_detonation_ring", sConVarName))
         g_bFrostNadesDetonationRing = GetConVarBool(hConVar); else
     if(StrEqual("hns_block_console_kill", sConVarName))
-        g_bBlockConsoleKill = GetConVarBool(g_hBlockConsoleKill); else
+        g_bBlockConsoleKill = GetConVarBool(hConVar); else
     if(StrEqual("hns_suicide_points_penalty", sConVarName))
         g_iSuicidePointsPenalty = StringToInt(sNewValue); else
     if(StrEqual("hns_molotov_friendly_fire", sConVarName))
-        g_bMolotovFriendlyFire = GetConVarBool(g_hBlockConsoleKill); else
+        g_bMolotovFriendlyFire = GetConVarBool(hConVar); else
     if(StrEqual("hns_respawn_mode", sConVarName))
-        g_bRespawnMode = GetConVarBool(g_hRespawnMode); else
+        g_bRespawnMode = GetConVarBool(hConVar); else
     if(StrEqual("hns_base_respawn_time", sConVarName))
-        g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime); else
+        g_fBaseRespawnTime = GetConVarFloat(hConVar); else
     if(StrEqual("hns_respawn_invisibility_duration", sConVarName))
-        g_fInvisibilityDuration = GetConVarFloat(g_hInvisibilityDuration); else
+        g_fInvisibilityDuration = GetConVarFloat(hConVar); else
+    if(StrEqual("hns_ct_respawn_sleep_duration", sConVarName))
+        g_fCTRespawnSleepDuration = GetConVarFloat(hConVar); else
     if(StrEqual("hns_airaccelerate", sConVarName)) {
         g_iAirAccelerate = StringToInt(sNewValue);
         if(g_iAirAccelerate) {
@@ -577,7 +586,7 @@ public Action:FirstCountdownMessage(Handle:hTimer, any:iClient)
         PrintHintText(iClient, "\n  The round will start in %d second%s.", iCountdownTimeFloor, (iCountdownTimeFloor == 1) ? "" : "s");
 }
 
-public Action:ShowCountdownMessage(Handle:hTimer)
+public Action:ShowCountdownMessage(Handle:hTimer, any:iTarget)
 {
     new iCountdownTimeFloor = RoundToFloor(g_fCountdownTime);
     g_iCountdownCount++;
@@ -828,14 +837,37 @@ public Action:OnPlayerSpawn(Handle:hEvent, const String:sName[], bool:bDontBroad
     if(!g_bEnabled)
         return Plugin_Continue;
     new iId = GetEventInt(hEvent, "userid");
-    new iClient = GetClientOfUserId(iId);
 
-    if(g_bRespawnMode)
-        MakeClientInvisible(iClient, g_fInvisibilityDuration);
+    if(g_bRespawnMode) {
+        new iClient = GetClientOfUserId(iId);
+        new iTeam = GetClientTeam(iClient);
+        if(iTeam == CS_TEAM_T)
+            MakeClientInvisible(iClient, g_fInvisibilityDuration);
+    }
 
     CreateTimer(0.1, OnPlayerSpawnDelay, iId);
         
     return Plugin_Continue;
+}
+
+public Action:RespawnCountdown(Handle:hTimer, any:iClient) {
+    new iCountdownTimeFloor = RoundToFloor(g_fCTRespawnSleepDuration);
+    g_iRespawnCountdownCount[iClient]++;
+    if(g_iRespawnCountdownCount[iClient] < g_fCountdownTime) {
+        if(IsClientInGame(iClient)) {
+            new iTimeDelta = iCountdownTimeFloor - g_iRespawnCountdownCount[iClient];
+            PrintHintText(iClient, "\n  You will wake up in %d second%s.", iTimeDelta, (iTimeDelta == 1) ? "" : "s");
+        }
+        return Plugin_Continue;
+    }
+    else {
+        g_iRespawnCountdownCount[iClient] = 0;
+        if(IsClientInGame(iClient))
+            PrintHintText(iClient, "\n  You are ready to go.");
+        //EmitSoundToAll(SOUND_GOGOGO);
+        g_hRespawnCountdownMessage[iClient] = INVALID_HANDLE;
+        return Plugin_Stop;
+    }
 }
 
 public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
@@ -874,8 +906,19 @@ public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
                 SetEntPropFloat(iWeapon, Prop_Send, "m_flNextSecondaryAttack", GetGameTime() + 9001.0);
             }
         }
-        if((iTeam == CS_TEAM_CT)) {
-            if(g_fCountdownTime > 0.0 && fDefreezeTime > 0.0 && (fDefreezeTime < g_fCountdownTime + 1.0)) {
+        else if(iTeam == CS_TEAM_CT) {
+            if(g_bRespawnMode) {
+                if(g_fCTRespawnSleepDuration) {
+                    Freeze(iClient, g_fCTRespawnSleepDuration, COUNTDOWN);
+                    new iCountdownTimeFloor = RoundToFloor(g_fCTRespawnSleepDuration);
+                    PrintHintText(iClient, "\n  You will wake up in %d second%s.", iCountdownTimeFloor, (iCountdownTimeFloor == 1) ? "" : "s");
+                    if(g_hRespawnCountdownMessage[iClient] != INVALID_HANDLE) {
+                        KillTimer(g_hRespawnCountdownMessage[iClient]);
+                    }
+                    g_hRespawnCountdownMessage[iClient] = CreateTimer(1.0, RespawnCountdown, iClient, TIMER_FLAG_NO_MAPCHANGE);
+                }
+            }
+            else if(g_fCountdownTime > 0.0 && fDefreezeTime > 0.0 && (fDefreezeTime < g_fCountdownTime + 1.0)) {
                 if(g_iConnectedClients > 1)
                     Freeze(iClient, fDefreezeTime, COUNTDOWN);
             }
