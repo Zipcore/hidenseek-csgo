@@ -537,6 +537,12 @@ public OnMapEnd()
         if(g_haFreezeTimer[iClient] != INVALID_HANDLE) {
             KillTimer(g_haFreezeTimer[iClient]);
             g_haFreezeTimer[iClient] = INVALID_HANDLE;
+            g_iCountdownCount = 0;
+        }
+        if(g_hRespawnCountdownMessage[iClient] != INVALID_HANDLE) {
+            KillTimer(g_hRespawnCountdownMessage[iClient]);
+            g_hRespawnCountdownMessage[iClient] = INVALID_HANDLE;
+            g_iRespawnCountdownCount[iClient] = 0;
         }
     }
 }
@@ -914,8 +920,9 @@ public Action:OnPlayerSpawnDelay(Handle:hTimer, any:iId)
                     PrintHintText(iClient, "\n  You will wake up in %d second%s.", iCountdownTimeFloor, (iCountdownTimeFloor == 1) ? "" : "s");
                     if(g_hRespawnCountdownMessage[iClient] != INVALID_HANDLE) {
                         KillTimer(g_hRespawnCountdownMessage[iClient]);
+                        g_iRespawnCountdownCount[iClient] = 0;
                     }
-                    g_hRespawnCountdownMessage[iClient] = CreateTimer(1.0, RespawnCountdown, iClient, TIMER_FLAG_NO_MAPCHANGE);
+                    g_hRespawnCountdownMessage[iClient] = CreateTimer(1.0, RespawnCountdown, iClient, TIMER_REPEAT);
                 }
             }
             else if(g_fCountdownTime > 0.0 && fDefreezeTime > 0.0 && (fDefreezeTime < g_fCountdownTime + 1.0)) {
@@ -1118,6 +1125,10 @@ public Action:OnPlayerDeath(Handle:hEvent, const String:sName[], bool:bDontBroad
 
     if(g_bRespawnMode) {
         CreateTimer(g_fBaseRespawnTime, RespawnPlayer, iVictim, TIMER_FLAG_NO_MAPCHANGE);
+        if(g_hRespawnCountdownMessage[iVictim] != INVALID_HANDLE) {
+            KillTimer(g_hRespawnCountdownMessage[iVictim]);
+            g_hRespawnCountdownMessage[iVictim] = INVALID_HANDLE;
+        }
     }
     return Plugin_Continue;
 }
