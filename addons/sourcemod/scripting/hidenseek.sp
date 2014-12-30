@@ -719,10 +719,12 @@ public Action:MakeClientVisible(Handle:hTimer, any:iClient)
 
 public Action:Hook_SetTransmit(iClient, iEntity)
 {
-    if(iClient == iEntity)
-        return Plugin_Continue;
+    if(iEntity > 0 && iEntity < MaxClients) {
+        if(GetClientTeam(iClient) == GetClientTeam(iEntity))
+            return Plugin_Continue;
+    }
     return Plugin_Handled;
-}  
+}
 
 public OnEntityCreated(iEntity, const String:sClassName[])
 {
