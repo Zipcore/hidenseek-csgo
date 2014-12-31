@@ -22,7 +22,7 @@
 #include <cstrike>
 
 // ConVar Defines
-#define PLUGIN_VERSION                "1.5.5"
+#define PLUGIN_VERSION                "1.6.0"
 #define HIDENSEEK_ENABLED             "1"
 #define COUNTDOWN_TIME                "10.0"
 #define AIR_ACC                       "100"
@@ -57,6 +57,7 @@
 // RespawnMode Defines
 #define RESPAWN_MODE                  "1"
 #define INVISIBILITY_DURATION         "5"
+#define INVISIBILITY_BREAK_DISTANCE   "200.0"
 #define BASE_RESPAWN_TIME             "5"
 #define CT_RESPAWN_SLEEP_DURATION     "5"
 
@@ -83,6 +84,11 @@
 #define NADE_HE           3
 #define NADE_DECOY        4
 #define NADE_INCENDIARY   5
+
+// Reason Defines
+#define REASON_ENEMY_TOO_CLOSE  1
+#define REASON_LADDER           2
+#define REASON_GRENADE          3
 
 // Freeze Type Defines
 #define COUNTDOWN    0
@@ -137,6 +143,7 @@ new Handle:g_hRespawnMode = INVALID_HANDLE;
 new Handle:g_hBaseRespawnTime = INVALID_HANDLE;
 new Handle:g_hInvisibilityDuration = INVALID_HANDLE;
 new Handle:g_hCTRespawnSleepDuration = INVALID_HANDLE;
+new Handle:g_hInvisibilityBreakDistance = INVALID_HANDLE;
 
 new bool:g_bEnabled;
 new Float:g_fCountdownTime;
@@ -165,6 +172,7 @@ new bool:g_bRespawnMode = true;
 new Float:g_fBaseRespawnTime;
 new Float:g_fInvisibilityDuration;
 new Float:g_fCTRespawnSleepDuration;
+new Float:g_fInvisibilityBreakDistance;
 
 //RespawnMode vars
 new Handle:g_hInvisible[MAXPLAYERS + 1] = {INVALID_HANDLE, ...};
@@ -294,6 +302,7 @@ public OnPluginStart()
     g_hRespawnMode = CreateConVar("hns_respawn_mode", RESPAWN_MODE, "Turns the Respawn mode On/Off (0=OFF, 1=ON)", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_hBaseRespawnTime = CreateConVar("hns_base_respawn_time", BASE_RESPAWN_TIME, "The minimum time, without additions, it takes to respawn", _, true, 0.0);
     g_hInvisibilityDuration = CreateConVar("hns_respawn_invisibility_duration", INVISIBILITY_DURATION, "The time in seconds Ts get invisibility after respawning.", _, true, 0.0);
+    g_hInvisibilityBreakDistance = CreateConVar("hns_invisibility_break_distance", INVISIBILITY_BREAK_DISTANCE, "The max. distance from an invisible player to an enemy required to break the invisibility.", _, true, 0.0);
     g_hCTRespawnSleepDuration = CreateConVar("hns_ct_respawn_sleep_duration", CT_RESPAWN_SLEEP_DURATION, "The duration after respawning during which CTs are asleep in Respawn mode", _, true, 0.0);
     // Remember to add HOOKS to OnCvarChange and modify OnConfigsExecuted
 
@@ -338,6 +347,7 @@ public OnPluginStart()
     HookConVarChange(g_hRespawnMode, OnCvarChange);
     HookConVarChange(g_hBaseRespawnTime, OnCvarChange);
     HookConVarChange(g_hInvisibilityDuration, OnCvarChange);
+    HookConVarChange(g_hInvisibilityBreakDistance, OnCvarChange);
     HookConVarChange(g_hCTRespawnSleepDuration, OnCvarChange);
     
     //Hooked'em
@@ -384,6 +394,7 @@ public OnConfigsExecuted()
     g_bRespawnMode = GetConVarBool(g_hRespawnMode);
     g_fBaseRespawnTime = GetConVarFloat(g_hBaseRespawnTime);
     g_fInvisibilityDuration = GetConVarFloat(g_hInvisibilityDuration);
+    g_fInvisibilityBreakDistance = GetConVarFloat(g_hInvisibilityBreakDistance) + 64.0;
     g_fCTRespawnSleepDuration = GetConVarFloat(g_hCTRespawnSleepDuration);
     
     g_faGrenadeChance[NADE_FLASHBANG] = GetConVarFloat(g_hFlashbangChance);
@@ -482,6 +493,8 @@ public OnCvarChange(Handle:hConVar, const String:sOldValue[], const String:sNewV
         g_fBaseRespawnTime = GetConVarFloat(hConVar); else
     if(StrEqual("hns_respawn_invisibility_duration", sConVarName))
         g_fInvisibilityDuration = GetConVarFloat(hConVar); else
+    if(StrEqual("hns_invisibility_break_distance", sConVarName))
+        g_fInvisibilityBreakDistance = GetConVarFloat(hConVar) + 64.0; else
     if(StrEqual("hns_ct_respawn_sleep_duration", sConVarName))
         g_fCTRespawnSleepDuration = GetConVarFloat(hConVar); else
     if(StrEqual("hns_airaccelerate", sConVarName)) {
@@ -630,6 +643,8 @@ public OnWeaponFire(Handle:hEvent, const String:name[], bool:dontBroadcast)
             for(i = 0; i < sizeof(g_saGrenadeWeaponNames) && !StrEqual(sWeaponName, g_saGrenadeWeaponNames[i]); i++) {}
             new iCount = GetEntProp(iClient, Prop_Send, "m_iAmmo", _, g_iaGrenadeOffsets[i]) - 1;
             new Handle:hPack;
+            if(g_hInvisible[iClient] != INVALID_HANDLE) 
+                BreakInvisibility(iClient, REASON_GRENADE);
             CreateDataTimer(0.2, SwapToNade, hPack);
             WritePackCell(hPack, iClient);
             WritePackCell(hPack, iWeapon);
@@ -708,6 +723,7 @@ public MakeClientInvisible(iClient, Float:fDuration)
     if(g_hInvisible[iClient] != INVALID_HANDLE)
         KillTimer(g_hInvisible[iClient]);
     g_hInvisible[iClient] = CreateTimer(g_fInvisibilityDuration, MakeClientVisible, iClient, TIMER_FLAG_NO_MAPCHANGE);
+    CreateTimer(0.5, CheckDistanceToEnemies, iClient, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }  
 
 public Action:MakeClientVisible(Handle:hTimer, any:iClient)
@@ -715,6 +731,44 @@ public Action:MakeClientVisible(Handle:hTimer, any:iClient)
     SDKUnhook(iClient, SDKHook_SetTransmit, Hook_SetTransmit);
     g_hInvisible[iClient] = INVALID_HANDLE;
     PrintToChat(iClient, "  \x04[HNS] You are now visible again.");
+}
+
+public BreakInvisibility(iClient, iReason)
+{
+    if(g_hInvisible[iClient] != INVALID_HANDLE) {
+        KillTimer(g_hInvisible[iClient]);
+        g_hInvisible[iClient] = INVALID_HANDLE;
+        SDKUnhook(iClient, SDKHook_SetTransmit, Hook_SetTransmit);
+        if(iReason == REASON_ENEMY_TOO_CLOSE)
+            PrintToChat(iClient, "  \x04[HNS] You got too close to an enemy and your invisibility was broken.");
+        else if(iReason == REASON_LADDER)
+            PrintToChat(iClient, "  \x04[HNS] You are no longer invisibile because you climbed a ladder.");
+        else if(iReason == REASON_GRENADE)
+            PrintToChat(iClient, "  \x04[HNS] You are no longer invisibile because you threw a grenade.");
+    }
+}
+
+public Action:CheckDistanceToEnemies(Handle:hTimer, any:iClient)
+{
+    if(g_hInvisible[iClient] == INVALID_HANDLE)
+        return Plugin_Stop;
+    new iClientTeam = GetClientTeam(iClient);
+    for(new iTarget = 1; iTarget < MaxClients; iTarget ++) {
+        if(IsClientInGame(iTarget)) {
+            new iTargetTeam = GetClientTeam(iTarget);
+            if(iClientTeam != iTargetTeam && iTargetTeam != CS_TEAM_SPECTATOR) {
+                new Float:faTargetCoord[3];
+                new Float:faClientCoord[3];
+                GetClientAbsOrigin(iTarget, faTargetCoord);
+                GetClientAbsOrigin(iClient, faClientCoord);
+                if(GetVectorDistance(faTargetCoord, faClientCoord) <= g_fInvisibilityBreakDistance) {
+                    BreakInvisibility(iClient, REASON_ENEMY_TOO_CLOSE);
+                    return Plugin_Stop;
+                }
+            }
+        }
+    }
+    return Plugin_Continue;
 }
 
 public Action:Hook_SetTransmit(iClient, iEntity)
@@ -823,6 +877,11 @@ public OnClientDisconnect(iClient)
             g_haFreezeTimer[iClient] = INVALID_HANDLE;
         }
         g_baFrozen[iClient] = false;
+    }
+    if(g_hInvisible[iClient] != INVALID_HANDLE) {
+        KillTimer(g_hInvisible[iClient]);
+        g_hInvisible[iClient] = INVALID_HANDLE;
+        g_iRespawnCountdownCount[iClient] = 0;
     }
     g_baToggleKnife[iClient] = true;
 }
@@ -1162,6 +1221,10 @@ public Action:OnPlayerRunCmd(iClient, &iButtons, &iImpulse, Float:faVelocity[3],
         return Plugin_Changed;
     }
     
+    if(g_hInvisible[iClient] != INVALID_HANDLE)
+        if(GetEntityMoveType(iClient) == MOVETYPE_LADDER)
+            BreakInvisibility(iClient, REASON_LADDER);
+
     new Float:fCurrentTime = GetGameTime();
     if(GetClientTeam(iClient) == CS_TEAM_T) {
         if (iButtons & (IN_ATTACK | IN_ATTACK2)) {  //this might be unnecessary
